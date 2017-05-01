@@ -2,12 +2,16 @@ import threading
 import socket
 import time
 import sys
+import traceback
 
-#TODO LONG-TERM
+import numpy as np
+
+### Server Objects ###
+
+#TODO Server Side
     # Implement adding/removing servers while running.
     # Build CLI framework.
     # Build GUI framework.
-    # 
 
 class DistributedTaskManager:
 
@@ -43,12 +47,10 @@ class DistributedTaskManager:
         self.numJobIntegrators = 8
         # The number of jobs that each jobIntegration thread will work with at
         # any given time.
+        #TODO Find better name for this variable
         self.jobsToPop = 10
 
         self.repetitionsFinished = 0
-
-        # Remove this variable, not used leave that up to the user.
-        self.repetitionsNeeded = repetitionsNeeded
         
         self.responseLock = threading.Lock()
         self.resetResponses()
@@ -144,10 +146,12 @@ class DistributedTaskManager:
             startTime = time.time()
             self.setNextRep()
 
+            #TODO I don't think both loops are needed. Merge them?
             #repeat until current repetition is finished
             while(not self.stop and not self.isRepetitionFinished()):
                 time.sleep(self.managerSleepTime) # pull me off the processor so others can work
 
+            #wait until jobBuffer is empty
             while(not self.stop and len(self.jobBuffer) !=0):
                 time.sleep(self.managerSleepTime)
 
@@ -178,7 +182,7 @@ class DistributedTaskManager:
             jobThread.start()
 
     # This thread pops up to 'jobsToPop' synchronously from the jobBuffer.
-    # After it has a set of jobs to integrate it releases the lock 
+    # After it has a set of jobs to integrate it releases the lock
     def jobIntegrationThread(self):
         while not self.stop:
             jobs = []
@@ -374,3 +378,100 @@ class DistributedTaskManager:
     # the recordResponse function that the user overwrites.
     def recordJob(self):
         raise NotImplementedError
+
+
+### Client Objects ###
+
+###TODO Client-side
+    # Implement some type of confirmation for code being received.
+    # handle the delimiting of responses for user?
+    # Implement workload settings
+    # Create CLI/GUI interface (connect/disconnect/change workload settings)
+       
+
+class DistributedTaskClient:
+
+    def __init__(self):
+        self.clientTask = ClientTask()
+
+    def setup(self, ip, port):
+        self.clientSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            self.clientSock.connect((ip, port))
+        except:
+            print("COULD NOT CONNECT TO SERVER.\nExiting...")
+            exit()
+         
+        print("Connected to server (%s)"%str(self.clientSock.getpeername()))
+
+        self.clientTask.receiveTaskInstructions(self.clientSock)
+        self.clientTask.interpretTaskInstructions()
+    
+    def run(self):
+        self.clientTask.run(self.clientSock)
+       
+
+class ClientTask:
+
+    def __init__(self):
+        self.MIN_MESSAGE_SIZE = 10
+
+    def interpretTaskInstructions(self):
+        instructions = eval(self.clientSetupStr)
+        names = instructions[0]
+        code = instructions[1]
+        exec(code)
+        names = eval(names)
+        for name in names:
+            self.__dict__[name] = eval(name)
+
+    def receiveLargeMessage(self, sock):
+        #get size of message to be received
+        val = sock.recv(self.MIN_MESSAGE_SIZE)
+        if val == "Close":
+            return val
+        incomingSize = int(val)
+        sock.send("CONFIRMED")
+        responses = ""
+        bytesReceived = 0
+        #receive message
+        while(bytesReceived < incomingSize):
+            bytesRemaing = incomingSize - bytesReceived
+            if bytesRemaing > 1024:
+                recvSize = 1024
+            else:
+                recvSize = bytesRemaing
+            msgPart = sock.recv(recvSize)
+            bytesReceived += len(msgPart)
+            responses += msgPart
+        if(responses == ''):
+            raise Exception
+        return responses
+
+    def sendLargeMessage(self, sock, msg):
+        sock.send(str(len(msg)).zfill(10))
+        sock.recv(10)
+        sock.send(msg)
+
+    def receiveTaskInstructions(self, sock):
+        #get instructions
+        self.clientSetupStr = self.receiveLargeMessage(sock)
+        sock.send("CONFIRMED")
+
+    def run(self, sock):
+        while 1:
+            try:
+                msg = self.receiveLargeMessage(sock)
+                if msg != "Close":
+                    ans = self.task(self, msg)
+                    self.sendLargeMessage(sock, ans)
+                else:
+                    # TODO change this to a log message
+                    print("Received close, disconnecting...")
+                    break
+            except Exception as e:
+                traceback.print_exc()
+                # TODO change this to a log message
+                print("Error encountered, exiting...")
+                break
+        sock.close()
