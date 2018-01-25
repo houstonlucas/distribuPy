@@ -49,7 +49,7 @@ class DistributedTaskManager:
         # The number of jobs that each jobIntegration thread will work with at
         # any given time.
         # TODO Find better name for this variable
-        self.jobsToPop = 10
+        self.jobs_to_pop = 10
 
         self.repetitions_finished = 0
 
@@ -59,7 +59,7 @@ class DistributedTaskManager:
         self.task_gen = self.task_generator()
         self.task_gen_lock = threading.Lock()
 
-        self.simThread = threading.Thread(target=self.simulation_management_thread)
+        self.sim_thread = threading.Thread(target=self.simulation_management_thread)
 
         # Reads the ClientCode file.
         self.read_in_client_code()
@@ -99,8 +99,8 @@ class DistributedTaskManager:
     # Stars the given server, also starts the simThread if it wasn't
     # already alive.
     def start(self, server):
-        if not self.simThread.isAlive():
-            self.simThread.start()
+        if not self.sim_thread.isAlive():
+            self.sim_thread.start()
 
         server.listen(self.connection_backlog_max)
         server.settimeout(self.server_timeout)
@@ -191,7 +191,7 @@ class DistributedTaskManager:
 
             if len(self.job_buffer) != 0:
                 with self.responseLock:
-                    while jobs_popped < self.jobsToPop and len(self.job_buffer) != 0:
+                    while jobs_popped < self.jobs_to_pop and len(self.job_buffer) != 0:
                         jobs.append(self.job_buffer.pop())
                         jobs_popped += 1
 
