@@ -4,25 +4,23 @@ import time
 import sys
 import traceback
 
-import numpy as np
 
 ### Server Objects ###
 
-#TODO Server Side
-    # Implement adding/removing servers while running.
-    # Build CLI framework.
-    # Build GUI framework.
+# TODO Server Side
+# Implement adding/removing servers while running.
+# Build CLI framework.
+# Build GUI framework.
 
 class DistributedTaskManager:
-
-    def __init__(self, tasksPerJob = 20):
+    def __init__(self, tasksPerJob=20):
         self.jobBuffer = []
         self.dropBuffer = []
         self.servers = []
 
         self.stop = False
         self.verbose = True
-        
+
         self.tasksPerJob = tasksPerJob
         self.connectionBacklogMax = 5
         self.connected = 0
@@ -47,30 +45,30 @@ class DistributedTaskManager:
         self.numJobIntegrators = 8
         # The number of jobs that each jobIntegration thread will work with at
         # any given time.
-        #TODO Find better name for this variable
+        # TODO Find better name for this variable
         self.jobsToPop = 10
 
         self.repetitionsFinished = 0
-        
+
         self.responseLock = threading.Lock()
         self.resetResponses()
 
         self.taskGen = self.taskGenerator()
         self.taskGenLock = threading.Lock()
 
-        self.simThread = threading.Thread(target = self.simulationManagementThread)
+        self.simThread = threading.Thread(target=self.simulationManagementThread)
 
-        #Reads the ClientCode file.
+        # Reads the ClientCode file.
         self.readInClientCode()
 
     # Adds a socket to the given ip and port. Trying again every retryWaitTime
     # seconds until a successful binding happens.
     def persistSetup(self, ip, port):
         connected = False
-        self.servers.append( socket.socket(socket.AF_INET, socket.SOCK_STREAM) )
+        self.servers.append(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
         while not connected:
             try:
-                self.servers[-1].bind((ip,port))
+                self.servers[-1].bind((ip, port))
                 connected = True
             except:
                 self.log("Failed to establish, trying again...")
@@ -80,43 +78,43 @@ class DistributedTaskManager:
     # Adds a socket to the given ip and port. Exiting on failure to bind.
     def setup(self, ip, port):
         try:
-            self.servers.append( socket.socket(socket.AF_INET, socket.SOCK_STREAM) )
-            self.servers[-1].bind((ip,port))
+            self.servers.append(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+            self.servers[-1].bind((ip, port))
         except:
             self.log("Could not establish server on {}".format(ip))
             self.stop = True
-            #TODO maybe instead return bad exit code.
+            # TODO maybe instead return bad exit code.
             sys.exit(1)
         self.log("Server setup on {}".format(ip))
 
     # Starts all servers in the servers list.
-    def startAll(self,):
+    def startAll(self, ):
         for server in self.servers:
-            thread = threading.Thread(target = self.start, args = (server,))
+            thread = threading.Thread(target=self.start, args=(server,))
             thread.start()
 
     # Stars the given server, also starts the simThread if it wasn't
     # already alive.
-    def start(self,server):
+    def start(self, server):
         if not self.simThread.isAlive():
             self.simThread.start()
-        
+
         server.listen(self.connectionBacklogMax)
         server.settimeout(self.serverTimeOut)
 
         # Until told to stop listen for connections and start a new Thread to
         # handle that connection.
-        while(not self.stop):
+        while not self.stop:
             try:
                 sock, port = server.accept()
-                t = threading.Thread(target = self.clientCommunicationThread, args = (sock,))
+                t = threading.Thread(target=self.clientCommunicationThread, args=(sock,))
                 t.start()
             except socket.timeout:
                 continue
             except:
                 self.stop = True
                 break
-            self.log("CONNECTED TO: %s"%str(port))
+            self.log("CONNECTED TO: %s" % str(port))
 
         try:
             server.close()
@@ -127,7 +125,7 @@ class DistributedTaskManager:
 
     # Wait until the other threads have stopped. Returns true if everything ran
     # correctly, false otherwise.
-    def spin(self, sleepTime = 1.0):
+    def spin(self, sleepTime=1.0):
         try:
             while not self.stop:
                 time.sleep(sleepTime)
@@ -141,25 +139,25 @@ class DistributedTaskManager:
         self.createJobIntegrationThreads()
 
         time.sleep(0.1)
-        #repeat until all repetitions have been processed
-        while(not self.stop and not self.isSimulationFinished()):
+        # repeat until all repetitions have been processed
+        while (not self.stop and not self.isSimulationFinished()):
             startTime = time.time()
             self.setNextRep()
 
-            #TODO I don't think both loops are needed. Merge them?
-            #repeat until current repetition is finished
-            while(not self.stop and not self.isRepetitionFinished()):
-                time.sleep(self.managerSleepTime) # pull me off the processor so others can work
+            # TODO I don't think both loops are needed. Merge them?
+            # repeat until current repetition is finished
+            while not self.stop and not self.isRepetitionFinished():
+                time.sleep(self.managerSleepTime)  # pull me off the processor so others can work
 
-            #wait until jobBuffer is empty
-            while(not self.stop and len(self.jobBuffer) !=0):
+            # wait until jobBuffer is empty
+            while not self.stop and len(self.jobBuffer) != 0:
                 time.sleep(self.managerSleepTime)
 
             dur = time.time() - startTime
             self.log("{} {} finished in {} seconds".format(self.repetitionName, self.repetitionsFinished, dur))
 
             if not self.stop:
-                self.repetitionsFinished +=1
+                self.repetitionsFinished += 1
 
         self.stop = True
         self.closeServers()
@@ -178,7 +176,7 @@ class DistributedTaskManager:
     # Creates all the jobIntegration threads.
     def createJobIntegrationThreads(self):
         for i in range(self.numJobIntegrators):
-            jobThread = threading.Thread(target = self.jobIntegrationThread)
+            jobThread = threading.Thread(target=self.jobIntegrationThread)
             jobThread.start()
 
     # This thread pops up to 'jobsToPop' synchronously from the jobBuffer.
@@ -188,19 +186,20 @@ class DistributedTaskManager:
             jobs = []
             jobsPopped = 0
 
-            if(len(self.jobBuffer) != 0):
+            if (len(self.jobBuffer) != 0):
                 with self.responseLock:
-                    while(jobsPopped < self.jobsToPop and len(self.jobBuffer) != 0):
+                    while (jobsPopped < self.jobsToPop and len(self.jobBuffer) != 0):
                         jobs.append(self.jobBuffer.pop())
                         jobsPopped += 1
 
             for job in jobs:
                 self.recordJob(job)
 
-    # Calls user defined setNextRepetition and resetResponses, then resets the
-        # taskGenerator
-        #TODO should this exist or should the user be charged with this in the
-        # set nextRepetition function?
+                # Calls user defined setNextRepetition and resetResponses, then resets the
+                # taskGenerator
+                # TODO should this exist or should the user be charged with this in the
+                # set nextRepetition function?
+
     def setNextRep(self):
         self.setNextRepetition()
         self.resetResponses()
@@ -213,18 +212,18 @@ class DistributedTaskManager:
 
     # Sends client instructions to the client.
     def setupClient(self, sock):
-        #TODO do the labels really need to be there?
-        clientInstructions = str([self.clientLabels,self.clientCode])
-        #Send size of code
+        # TODO do the labels really need to be there?
+        clientInstructions = str([self.clientLabels, self.clientCode])
+        # Send size of code
         sock.send(str(len(clientInstructions)).zfill(self.smallMessageSize))
         confirm = sock.recv(self.smallMessageSize)
-        #Send instructions
+        # Send instructions
         sock.send(clientInstructions)
         confirm = sock.recv(self.smallMessageSize)
 
     # Reads the instructions for the client and send them to the 
     def readInClientCode(self):
-        f = open("ClientCode.py","r")
+        f = open("ClientCode.py", "r")
         clientCodelines = f.readlines()
         self.clientLabels = clientCodelines[0]
         self.clientCode = ''.join(clientCodelines[2:])
@@ -243,7 +242,7 @@ class DistributedTaskManager:
 
         # Issue jobs to client
         while not self.stop:
-            #Package up tasks into jobs
+            # Package up tasks into jobs
             toClient, tasksInJob = self.getPackagedJob()
             if toClient == "":
                 continue
@@ -259,7 +258,7 @@ class DistributedTaskManager:
                 peerName = str(sock.getpeername())
                 self.log("{} has dropped!".format(peerName))
                 self.log("Dropped jobs will be added to the drop buffer.")
-                if(tasksInJob != [None]):
+                if (tasksInJob != [None]):
                     for task in tasksInJob:
                         self.dropBuffer.append(task)
                 break
@@ -271,10 +270,11 @@ class DistributedTaskManager:
         self.changeConnectedCount(-1)
         self.log("Ending clientCommunicationThread")
 
-    # Pulls the next task from the user-defined taskGenerator.
+        # Pulls the next task from the user-defined taskGenerator.
         # After all original tasks are used, this pulls from the dropBuffer
         # until the dropBuffer is empty at which point the function returns
         # None, signaling the receiving clientCommunicationThread to wait.
+
     def getNextTask(self):
         with self.taskGenLock:
             task = next(self.taskGen, None)
@@ -286,24 +286,24 @@ class DistributedTaskManager:
     # Returns a package with multiple tasks as a string.
     # The structure of a package is task descriptions seperated by underscores.
     # TODO should this be pushed on the user to define?
-    def getPackagedJob(self,):
+    def getPackagedJob(self, ):
         toClient = ""
         tasksInJob = []
         for i in range(self.tasksPerJob):
             task = self.getNextTask()
             if task != None:
                 tasksInJob.append(task)
-                #TODO the underscore should be some generic delimiter that the 
+                # TODO the underscore should be some generic delimiter that the
                 # user can set. If this is changed then also send the delimiter
                 # across to the clients so they can properly parse messages.
-                toClient += "_"+str(task[1])
+                toClient += "_" + str(task[1])
         return toClient[1:], tasksInJob
 
     # Records the tasks and corresponding responses by placing them into the jobBuffer.
     def handleResponses(self, tasks, responses):
         # loop through a split up responses and place the peices into the jobBuffer
         split_responses = responses.split("_")
-        for index,response in enumerate(split_responses):
+        for index, response in enumerate(split_responses):
             self.recordResponse(tasks[index], response)
 
     # Receives a message from a client. First receiving the size of the message
@@ -314,7 +314,7 @@ class DistributedTaskManager:
         sock.send("CONFIRMED")
         responses = ""
         bytesReceived = 0
-        while(bytesReceived < incomingSize):
+        while (bytesReceived < incomingSize):
             bytesRemaing = incomingSize - bytesReceived
             if bytesRemaing > self.bytesPerReceive:
                 recvSize = self.bytesPerReceive
@@ -323,7 +323,7 @@ class DistributedTaskManager:
             msgPart = sock.recv(recvSize)
             bytesReceived += len(msgPart)
             responses += msgPart
-        if(responses == ''):
+        if (responses == ''):
             raise Exception
         return responses
 
@@ -334,7 +334,7 @@ class DistributedTaskManager:
         sock.recv(self.smallMessageSize)
         sock.send(msg)
 
-    #TODO replace with https://docs.python.org/2/library/logging.html
+    # TODO replace with https://docs.python.org/2/library/logging.html
     def log(self, msg):
         if self.verbose:
             print(msg)
@@ -344,11 +344,11 @@ class DistributedTaskManager:
     ######################################################
 
     # User defines when a repetition is finished.
-    def isRepetitionFinished(self,):
+    def isRepetitionFinished(self, ):
         raise NotImplementedError
 
     # User defines when the simulation is finished.
-    def isSimulationFinished(self,):
+    def isSimulationFinished(self, ):
         raise NotImplementedError
 
     # User defines how the given task is broken up, yielding tasks to be sent
@@ -356,7 +356,7 @@ class DistributedTaskManager:
     def taskGenerator(self):
         raise NotImplementedError
 
-    #TODO Should this just be wrapped up inside the setNextRepetition function?
+    # TODO Should this just be wrapped up inside the setNextRepetition function?
     # User defines what reseting the responses entails.
     # Note: This function is called at the begining of each repetition.
     def resetResponses(self):
@@ -379,18 +379,16 @@ class DistributedTaskManager:
     def recordJob(self):
         raise NotImplementedError
 
+    ### Client Objects ###
 
-### Client Objects ###
-
-###TODO Client-side
+    ###TODO Client-side
     # Implement some type of confirmation for code being received.
     # handle the delimiting of responses for user?
     # Implement workload settings
     # Create CLI/GUI interface (connect/disconnect/change workload settings)
-       
+
 
 class DistributedTaskClient:
-
     def __init__(self):
         self.clientTask = ClientTask()
 
@@ -401,18 +399,17 @@ class DistributedTaskClient:
         except:
             print("COULD NOT CONNECT TO SERVER.\nExiting...")
             exit()
-         
-        print("Connected to server (%s)"%str(self.clientSock.getpeername()))
+
+        print("Connected to server (%s)" % str(self.clientSock.getpeername()))
 
         self.clientTask.receiveTaskInstructions(self.clientSock)
         self.clientTask.interpretTaskInstructions()
-    
+
     def run(self):
         self.clientTask.run(self.clientSock)
-       
+
 
 class ClientTask:
-
     def __init__(self):
         self.MIN_MESSAGE_SIZE = 10
 
@@ -420,13 +417,13 @@ class ClientTask:
         instructions = eval(self.clientSetupStr)
         names = instructions[0]
         code = instructions[1]
-        exec(code)
+        exec (code)
         names = eval(names)
         for name in names:
             self.__dict__[name] = eval(name)
 
     def receiveLargeMessage(self, sock):
-        #get size of message to be received
+        # get size of message to be received
         val = sock.recv(self.MIN_MESSAGE_SIZE)
         if val == "Close":
             return val
@@ -434,8 +431,8 @@ class ClientTask:
         sock.send("CONFIRMED")
         responses = ""
         bytesReceived = 0
-        #receive message
-        while(bytesReceived < incomingSize):
+        # receive message
+        while (bytesReceived < incomingSize):
             bytesRemaing = incomingSize - bytesReceived
             if bytesRemaing > 1024:
                 recvSize = 1024
@@ -444,7 +441,7 @@ class ClientTask:
             msgPart = sock.recv(recvSize)
             bytesReceived += len(msgPart)
             responses += msgPart
-        if(responses == ''):
+        if (responses == ''):
             raise Exception
         return responses
 
@@ -454,7 +451,7 @@ class ClientTask:
         sock.send(msg)
 
     def receiveTaskInstructions(self, sock):
-        #get instructions
+        # get instructions
         self.clientSetupStr = self.receiveLargeMessage(sock)
         sock.send("CONFIRMED")
 
