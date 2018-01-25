@@ -219,10 +219,10 @@ class DistributedTaskManager:
         client_instructions = str([self.client_labels, self.client_code])
         # Send size of code
         sock.send(str(len(client_instructions)).zfill(self.small_message_size))
-        confirm = sock.recv(self.small_message_size)
+        sock.recv(self.small_message_size)
         # Send instructions
         sock.send(client_instructions)
-        confirm = sock.recv(self.small_message_size)
+        sock.recv(self.small_message_size)
 
     # Reads the instructions for the client and send them to the 
     def read_in_client_code(self):
@@ -240,7 +240,7 @@ class DistributedTaskManager:
         try:
             self.setup_client(sock)
         except socket.error, err:
-            self.log("[ERROR] {}\n".format(err[1]))
+            self.log("[ERROR] {}\n".format(err.message))
             sock.close()
             return
 
@@ -253,8 +253,8 @@ class DistributedTaskManager:
 
             # Send, receive, and handle jobs
             try:
-                self.send_large_message(sock, to_client)
-                responses = self.receive_large_message(sock)
+                send_large_message(sock, to_client, self.small_message_size)
+                responses = receive_large_message(sock, self.small_message_size)
                 self.handle_responses(tasks_in_job, responses)
             except Exception as err:
                 self.log(err)
@@ -309,34 +309,6 @@ class DistributedTaskManager:
         split_responses = responses.split("_")
         for index, response in enumerate(split_responses):
             self.record_response(tasks[index], response)
-
-    # Receives a message from a client. First receiving the size of the message
-    # to be received, looping to receive the entire message in chunks of at
-    # most bytesPerReceive number of bytes.
-    def receive_large_message(self, sock):
-        incoming_size = int(sock.recv(self.small_message_size))
-        sock.send("CONFIRMED")
-        responses = ""
-        bytes_received = 0
-        while bytes_received < incoming_size:
-            bytes_remaining = incoming_size - bytes_received
-            if bytes_remaining > self.bytesPerReceive:
-                recv_size = self.bytesPerReceive
-            else:
-                recv_size = bytes_remaining
-            msg_part = sock.recv(recv_size)
-            bytes_received += len(msg_part)
-            responses += msg_part
-        if responses == '':
-            raise Exception
-        return responses
-
-    # First sends the size of the message that will be sent, then receives a
-    # a confirmation (mainly used for synchronizing this communication)
-    def send_large_message(self, sock, msg):
-        sock.send(str(len(msg)).zfill(self.small_message_size))
-        sock.recv(self.small_message_size)
-        sock.send(msg)
 
     # TODO replace with https://docs.python.org/2/library/logging.html
     def log(self, msg):
@@ -414,15 +386,9 @@ class DistributedTaskClient:
         self.clientTask.run(self.clientSock)
 
 
-def send_large_message(sock, msg):
-    sock.send(str(len(msg)).zfill(10))
-    sock.recv(10)
-    sock.send(msg)
-
-
 class ClientTask:
     def __init__(self):
-        self.MIN_MESSAGE_SIZE = 10
+        self.small_message_size = 10
         self.clientSetupStr = ""
 
     def interpret_task_instructions(self):
@@ -434,48 +400,62 @@ class ClientTask:
         for name in names:
             self.__dict__[name] = eval(name)
 
-    def receive_large_message(self, sock):
-        # get size of message to be received
-        val = sock.recv(self.MIN_MESSAGE_SIZE)
-        if val == "Close":
-            return val
-        incoming_size = int(val)
-        sock.send("CONFIRMED")
-        responses = ""
-        bytes_received = 0
-        # receive message
-        while bytes_received < incoming_size:
-            bytes_remaining = incoming_size - bytes_received
-            if bytes_remaining > 1024:
-                recv_size = 1024
-            else:
-                recv_size = bytes_remaining
-            msg_part = sock.recv(recv_size)
-            bytes_received += len(msg_part)
-            responses += msg_part
-        if responses == '':
-            raise Exception
-        return responses
-
     def receive_task_instructions(self, sock):
         # get instructions
-        self.clientSetupStr = self.receive_large_message(sock)
+        self.clientSetupStr = receive_large_message(sock, self.small_message_size)
         sock.send("CONFIRMED")
 
     def run(self, sock):
         while 1:
             try:
-                msg = self.receive_large_message(sock)
+                msg = receive_large_message(sock, self.small_message_size)
                 if msg != "Close":
+                    # TODO: This should almost certainly be made an abstract function
                     ans = self.task(self, msg)
-                    send_large_message(sock, ans)
+                    send_large_message(sock, ans, self.small_message_size)
                 else:
                     # TODO change this to a log message
                     print("Received close, disconnecting...")
                     break
-            except Exception as e:
+            except:
                 traceback.print_exc()
                 # TODO change this to a log message
                 print("Error encountered, exiting...")
                 break
         sock.close()
+
+
+# Helper Functions #
+
+def send_large_message(sock, msg, min_message_size):
+    sock.send(str(len(msg)).zfill(min_message_size))
+    sock.recv(min_message_size)
+    sock.send(msg)
+
+
+# Receives a message from a socket. First receiving the size of the message
+# to be received, looping to receive the entire message in chunks of at
+# most recv_size number of bytes.
+
+def receive_large_message(sock, min_message_size):
+    # get size of message to be received
+    val = sock.recv(min_message_size)
+    if val == "Close":
+        return val
+    incoming_size = int(val)
+    sock.send("CONFIRMED")
+    responses = ""
+    bytes_received = 0
+    # receive message
+    while bytes_received < incoming_size:
+        bytes_remaining = incoming_size - bytes_received
+        if bytes_remaining > 1024:
+            recv_size = 1024
+        else:
+            recv_size = bytes_remaining
+        msg_part = sock.recv(recv_size)
+        bytes_received += len(msg_part)
+        responses += msg_part
+    if responses == '':
+        raise Exception
+    return responses
