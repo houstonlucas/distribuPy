@@ -33,12 +33,12 @@ def main():
 
     server = MandelrotServer(baseName, pos, size, resolution, tiling, numRepetitions)
     server.setup(ip, port)
-    server.startAll()
+    server.start_all()
     server.spin()
     server.writeInfoFile()
 
 class MandelrotServer(DistributedTaskManager):
-    def __init__(self, baseName, pos, size, resolution, tiling, numRepetitions, tasksPerJob=1):
+    def __init__(self, baseName, pos, size, resolution, tiling, numRepetitions, tasks_per_job=1):
         self.numReplies = 0
         self.maxRepetitions = numRepetitions
 
@@ -68,7 +68,7 @@ class MandelrotServer(DistributedTaskManager):
 
         self.nestingFactor = 10.0/5.0
 
-        DistributedTaskManager.__init__(self, tasksPerJob)
+        DistributedTaskManager.__init__(self, tasks_per_job)
 
     #Save the current image.
     def saveImage(self, fName):
@@ -138,15 +138,15 @@ class MandelrotServer(DistributedTaskManager):
             self.pixels[xi,yi] = self.pallette[color]
 
     # Repetition is finished when all divisions have returned.
-    def isRepetitionFinished(self,):
+    def is_repetition_finished(self, ):
         return self.numReplies == self.numDivs
 
     # Simulation is finished when all images have been generated.
-    def isSimulationFinished(self,):
-        return self.repetitionsFinished > self.maxRepetitions
+    def is_simulation_finished(self, ):
+        return self.repetitions_finished > self.maxRepetitions
 
     # Definition of how to send divide tasks
-    def taskGenerator(self):
+    def task_generator(self):
         taskID = 0
         for x in range(self.tiling[0]):
             print("Giving column tile {}".format(x))
@@ -158,26 +158,26 @@ class MandelrotServer(DistributedTaskManager):
                       (self.rx,self.ry), self.window.toList()))
 
     #Reset the response counter for the next itteration
-    def resetResponses(self):
+    def reset_responses(self):
         self.numReplies = 0
 
     #Zoom in and save current image
-    def setNextRepetition(self):
-        if self.repetitionsFinished != 0:
+    def set_next_repetition(self):
+        if self.repetitions_finished != 0:
             self.w /= self.nestingFactor
             self.h /= self.nestingFactor
             self.window = Window((self.x, self.y),(self.w, self.h))
-            fileName = self.outName.format(self.repetitionsFinished)
+            fileName = self.outName.format(self.repetitions_finished)
             self.saveImage(fileName)
 
     #Put response into the job Buffer, increment number of replies received.
-    def recordResponse(self, task, response):
+    def record_response(self, task, response):
         with self.responseLock:
             self.numReplies += 1
-            self.jobBuffer.append( (task, response) )
+            self.job_buffer.append((task, response))
 
     #Process a job by painting pixels
-    def recordJob(self, job):
+    def record_job(self, job):
         task, response = job
         taskID, taskData = task
         with self.responseLock:
